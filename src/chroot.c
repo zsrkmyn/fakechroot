@@ -128,14 +128,35 @@ wrapper(chroot, int, (const char * path))
         separator = "";
     }
 
-    len = strlen(ld_library_path)+strlen(separator)+strlen(path)*2+sizeof("/usr/lib:/lib");
+    const char * const lib_paths[] = {
+        "/usr/lib64", "/lib64",
+        "/usr/lib", "/lib",
+        "/usr/lib32", "/lib32",
+    };
+
+    size_t tmplen = 0;
+    for (int i = 0; i < sizeof(lib_paths)/sizeof(char *); i++) {
+        tmplen += strlen(lib_paths[i]) + 1;
+    }
+    len = strlen(ld_library_path) + strlen(separator) + strlen(path) * sizeof(lib_paths) + tmplen;
 
     if ((new_ld_library_path = malloc(len)) == NULL) {
         __set_errno(ENOMEM);
         return -1;
     }
 
-    snprintf(new_ld_library_path, len, "%s%s%s/usr/lib:%s/lib", ld_library_path, separator, path, path);
+    strcpy(new_ld_library_path, ld_library_path);
+    tmpptr = new_ld_library_path + strlen(ld_library_path);
+
+    for (int i = 0; i < sizeof(lib_paths)/sizeof(char *); i++) {
+        char buf[FAKECHROOT_PATH_MAX];
+        snprintf(buf, FAKECHROOT_PATH_MAX, "%s%s", path, lib_paths[i]);
+        if (STAT(buf, &sb) != 0 || (sb.st_mode & S_IFMT & (S_IFDIR | S_IFBLK)) == 0)
+            continue;
+        tmpptr += sprintf(tmpptr, "%s%s", separator, buf);
+        separator = ":";
+    }
+
     setenv("LD_LIBRARY_PATH", new_ld_library_path, 1);
     free(new_ld_library_path);
 
